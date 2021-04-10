@@ -14,10 +14,11 @@ class State {
 	constructor() {
 		this.scene = new THREE.Scene();
 		const light1 = new THREE.PointLight(0xffffff, 0.8);
+		light1.position.set(0,20,50)
 		// const light1 = new THREE.PointLight(0xff0000, 1, 100);
 		// light1.position.set(100, 100, 100);
 		this.scene.add(light1);
-		const light2 = new THREE.AmbientLight(0xcccccc, 0.4);
+		const light2 = new THREE.AmbientLight(0xcccccc, 0.2);
 		// const light2 = new THREE.AmbientLight(0x404040);
 		this.scene.add(light2);
 		// this.light = new THREE.AmbientLight(0x404040);
@@ -55,8 +56,8 @@ class State {
 
 	bind = (canvas: HTMLCanvasElement) => {
 		this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-		this.camera = new THREE.PerspectiveCamera(70, canvas.width / canvas.height, 0.01, 1000);
-		this.camera.position.set(0, 0, 5);
+		this.camera = new THREE.PerspectiveCamera(5, canvas.width / canvas.height, 0.01, 1000);
+		this.camera.position.set(0, 0, 50);
 		this.controls = new OrbitControls(this.camera, canvas);
 		// this.controls.addEventListener("change", console.log);
 		const resize_observer = new ResizeObserver((els: ResizeObserverEntry[]) => {
@@ -81,14 +82,30 @@ class State {
 	};
 }
 
+const colors = {
+	a: 0x00ff00,
+	b: 0xff0000,
+	x: 0x0000ff,
+	y: 0x00ffff,
+};
+const colors_array = Object.values(colors);
+
 export const state = new State();
 loader.load("assets/models/xbox-controller/scene.gltf", (gtlf) => {
 	// console.log(gtlf);
 	let controller = gtlf.scene.children[0];
 	console.log(controller);
-	let mesh_0 = controller.getObjectByName("mesh_0") as THREE.Mesh;
-	let matirial_0 = mesh_0.material as THREE.MeshStandardMaterial;
-	matirial_0.color.set(0xff0000)
+	// [...Array(14)].forEach((_, i) => {
+	// 	let mesh = controller.getObjectByName(`mesh_${i}`) as THREE.Mesh;
+	// 	mesh.material = new THREE.MeshBasicMaterial({ color: colors_array[i] ?? 0xffffff });
+	// });
+	// let mesh_0 = controller.getObjectByName(`mesh_0`) as THREE.Mesh;
+	// console.log(mesh_0);
+	
+	// mesh_0.material = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+	// let mesh_0 = controller.getObjectByName(`mesh_8`) as THREE.Mesh;
+	// let matirial_0 = mesh_0.material as THREE.MeshStandardMaterial;
+	// matirial_0.color.set(0xff0000);
 	controller.scale.set(0.02, 0.02, 0.02);
 	controller.rotateX(Math.PI * 0.49);
 	state.controller = gtlf.scene.children[0];

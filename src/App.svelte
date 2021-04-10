@@ -27,13 +27,13 @@
 
 	@media (min-width: 640px) {
 		main {
-			max-width: 480px;
+			max-width: 640px;
 		}
 	}
 
 	@media (min-width: 1280px) {
 		main {
-			max-width: 1024px;
+			max-width: 1280px;
 		}
 	}
 </style>

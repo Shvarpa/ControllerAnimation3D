@@ -14,15 +14,15 @@ class State {
 	constructor() {
 		this.scene = new THREE.Scene();
 		const light1 = new THREE.PointLight(0xffffff, 0.8);
-		light1.position.set(0,20,50)
-		// const light1 = new THREE.PointLight(0xff0000, 1, 100);
-		// light1.position.set(100, 100, 100);
+		light1.position.set(0, 20, 50);
 		this.scene.add(light1);
+
 		const light2 = new THREE.AmbientLight(0xcccccc, 0.2);
-		// const light2 = new THREE.AmbientLight(0x404040);
 		this.scene.add(light2);
-		// this.light = new THREE.AmbientLight(0x404040);
-		// this.scene.add(this.light);
+
+		const light3 = new THREE.PointLight(0xffffff, 0.8);
+		light3.position.set(0, 0, -50);
+		this.scene.add(light3);
 	}
 
 	set controller(controller: THREE.Object3D) {
@@ -54,22 +54,19 @@ class State {
 		this.renderer.setAnimationLoop(this.animation);
 	};
 
-	bind = (canvas: HTMLCanvasElement) => {
-		this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-		this.camera = new THREE.PerspectiveCamera(5, canvas.width / canvas.height, 0.01, 1000);
+	bind = (canvas: HTMLCanvasElement, data: { aspect?: number } = {}) => {
+		const aspect = data.aspect ?? 16 / 9;
+		this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+		this.camera = new THREE.PerspectiveCamera(5, aspect, 10, 1000);
 		this.camera.position.set(0, 0, 50);
 		this.controls = new OrbitControls(this.camera, canvas);
 		// this.controls.addEventListener("change", console.log);
 		const resize_observer = new ResizeObserver((els: ResizeObserverEntry[]) => {
 			let [el] = els;
-			// console.log(el.contentRect.width, el.contentRect.height);
-			canvas.width = el.contentRect.width;
+			canvas.width = el.contentRect.height * aspect;
 			canvas.height = el.contentRect.height;
 			this.renderer.resetState();
 			this.controls.update();
-			// three_state.renderer.setSize(el.contentRect.width, el.contentRect.height);
-			// const rect = el.target.getBoundingClientRect();
-			// three_state.renderer.setSize(rect.width, rect.height);
 		});
 		resize_observer.observe(canvas);
 		this.start();
@@ -101,7 +98,7 @@ loader.load("assets/models/xbox-controller/scene.gltf", (gtlf) => {
 	// });
 	// let mesh_0 = controller.getObjectByName(`mesh_0`) as THREE.Mesh;
 	// console.log(mesh_0);
-	
+
 	// mesh_0.material = new THREE.MeshBasicMaterial({ color: 0xff0000 });
 	// let mesh_0 = controller.getObjectByName(`mesh_8`) as THREE.Mesh;
 	// let matirial_0 = mesh_0.material as THREE.MeshStandardMaterial;

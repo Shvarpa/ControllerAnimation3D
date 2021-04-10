@@ -5,7 +5,7 @@
 	import { state } from "./three_state";
 </script>
 
-<canvas use:state.bind></canvas>
+<canvas use:state.bind="{{ aspect: 4 / 3 }}"></canvas>
 
 <style>
 	canvas {

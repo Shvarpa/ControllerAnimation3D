@@ -5,6 +5,8 @@ const loader = new GLTFLoader();
 
 const invert_color = (color: THREE.Color) => new THREE.Color(255 - color.r, 255 - color.g, 255 - color.b);
 
+const scale = (val: number, in_min: number, in_max: number, out_min: number, out_max: number) => ((val - in_min) / (in_max - in_min)) * (out_max - out_min) + out_min;
+
 class ButtonState {
 	position: {
 		original: THREE.Vector3;
@@ -14,7 +16,7 @@ class ButtonState {
 		original: THREE.Color;
 		target: THREE.Color;
 	};
-	click_vector: THREE.Vector3 = new THREE.Vector3(0, 0, -3);
+	move_vector: THREE.Vector3 = new THREE.Vector3(0, 0, -3);
 	constructor(public object: THREE.Object3D, public label?: THREE.Mesh) {
 		const vec = object.position.clone();
 		this.position = {
@@ -30,7 +32,7 @@ class ButtonState {
 	_value: boolean = false;
 	set value(clicked: boolean) {
 		this._value = clicked;
-		this.position.target = clicked ? this.click_vector.add(this.position.original) : this.position.original;
+		this.position.target = clicked ? this.move_vector.add(this.position.original) : this.position.original;
 		if (this.color) this.color.target = clicked ? invert_color(this.color.original) : this.color.original;
 	}
 
@@ -50,16 +52,27 @@ class ButtonState {
 
 	static back_button(object: THREE.Object3D, label?: THREE.Mesh) {
 		let buttonState = new ButtonState(object, label);
-		buttonState.click_vector = new THREE.Vector3(0, -3, 0);
+		buttonState.move_vector = new THREE.Vector3(0, -3, 0);
 		return buttonState;
 	}
 }
+
 class TriggerState {
 	quaternion: {
 		original: THREE.Quaternion;
 		target: THREE.Quaternion;
 	};
+	position: {
+		original: THREE.Vector3;
+		target: THREE.Vector3;
+	};
+	move_vector: THREE.Vector3 = new THREE.Vector3(0, -3, 0);
 	constructor(public object: THREE.Object3D) {
+		const position = object.position.clone();
+		this.position = {
+			original: position,
+			target: position,
+		};
 		const quaternion = object.quaternion.clone();
 		this.quaternion = {
 			original: quaternion,
@@ -70,7 +83,16 @@ class TriggerState {
 	set value(value: number) {
 		value = value > 255 ? 255 : value < 0 ? 0 : value;
 		this._value = value;
-		this.quaternion.target = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 1, 0));
+		const force = scale(value, 0, 255, 0, 1);
+		this.position.target = this.move_vector
+			.clone()
+			.multiplyScalar(force)
+			.add(this.position.original)
+		// this.quaternion.target = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 0).multiplyScalar(force), Math.PI * 0.5 * force);
+		// this.quaternion.target = this.quaternion.original.clone().setFromEuler(new THREE.Euler(0, 1, 1))
+		// this.position.target.applyQuaternion(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), Math.PI * 0.5));
+		// this.object.applyQuaternion();
+		// this.quaternion.target = value == 0 ? this.quaternion.original : new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, 1));
 	}
 
 	get value() {
@@ -79,7 +101,9 @@ class TriggerState {
 
 	update(time: any) {
 		const t = 0.1 - Math.pow(0.001, time);
-		this.object.quaternion.slerp(this.quaternion.target, t);
+		// this.object.quaternion.slerp(this.quaternion.target ?? this.quaternion.original, t);
+		this.object.position.lerp(this.position.target ?? this.position.original, t);
+
 		// this.object.rotateOnAxis(new THREE.Vector3(0, 0, 1), (this.value / 255) * Math.PI);
 	}
 }

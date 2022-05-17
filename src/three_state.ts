@@ -1,9 +1,36 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
-const loader = new GLTFLoader();
+import { get_binding_group_value } from "svelte/internal";
 
 const invert_color = (color: THREE.Color) => new THREE.Color(255 - color.r, 255 - color.g, 255 - color.b);
+
+const get_scene = (object: THREE.Object3D): THREE.Scene => {
+	if (object.parent == null) return object as THREE.Scene;
+	return get_scene(object.parent);
+};
+
+const get_chain = (object: THREE.Object3D): THREE.Object3D[] => {
+	const result: THREE.Object3D[] = [];
+	while (object != null) {
+		result.unshift(object);
+		object = object.parent;
+	}
+	return result;
+};
+
+const get_chain_matrix = (object: THREE.Object3D) => {
+	const chain = get_chain(object);
+	let m = new THREE.Matrix4().identity();
+	for (const o of chain) {
+		m = m.multiply(o.matrix);
+	}
+	return m;
+};
+
+const remap = (val: number, in_min: number, in_max: number, out_min: number, out_max) => {
+	return ((val / (in_max - in_min)) * (out_max - out_min)) + out_min
+}
 
 class ButtonState {
 	position: {
@@ -55,32 +82,76 @@ class ButtonState {
 	}
 }
 class TriggerState {
+	position: {
+		original: THREE.Vector3;
+		target: THREE.Vector3;
+	};
+	click_vector: THREE.Vector3 = new THREE.Vector3(0, -5, 0);
+	rotation_vector: THREE.Euler = new THREE.Euler(-0.2, -0.03, 0);
 	quaternion: {
 		original: THREE.Quaternion;
 		target: THREE.Quaternion;
 	};
-	constructor(public object: THREE.Object3D) {
+	last_update: number = 0;
+	axis: THREE.Vector3 = new THREE.Vector3(1,0,0);
+	constructor(public object: THREE.Mesh) {
 		const quaternion = object.quaternion.clone();
 		this.quaternion = {
 			original: quaternion,
 			target: quaternion,
+		};
+		const position = object.position.clone();
+		this.position = {
+			original: position,
+			target: position,
 		};
 	}
 	_value: number = 0;
 	set value(value: number) {
 		value = value > 255 ? 255 : value < 0 ? 0 : value;
 		this._value = value;
-		this.quaternion.target = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 1, 0));
+		// 0.05, 0.1,
+		// this.quaternion.target = value == 0 ? this.quaternion.original : new THREE.Quaternion().setFromEuler(this.rotation_vector);
+		this.position.target = value == 0 ? this.position.original : this.click_vector.add(this.position.original);
+	}
+
+	get center() {
+		return this.object.geometry.boundingBox.getCenter(new THREE.Vector3(0, 0, 0));
 	}
 
 	get value() {
 		return this._value;
 	}
 
+	// get matrix multiplication form scene to object
+	// const mat = get_chain_matrix(this.object);
+	// const center = this.object.geometry.boundingBox.getCenter(new THREE.Vector3(0, 0, 0));
+	// let center_4 = new THREE.Vector4(center.x, center.y, center.z, 1);
+	// center_4 = center_4.applyMatrix4(mat);
+	// console.log(center, center_4);
+	// this.object.position.set(center_4.x, center_4.y, center_4.z);
+
+	rotate(axis, theta) {
+		const center = this.center;
+		this.object.position.sub(center);
+		this.object.position.applyAxisAngle(axis, theta);
+		this.object.position.add(center);
+		this.object.rotateOnAxis(axis, theta);
+	}
+
 	update(time: any) {
-		const t = 0.1 - Math.pow(0.001, time);
-		this.object.quaternion.slerp(this.quaternion.target, t);
-		// this.object.rotateOnAxis(new THREE.Vector3(0, 0, 1), (this.value / 255) * Math.PI);
+		const dt = time - this.last_update;
+		this.last_update = time;
+		
+		const t = 1 - Math.pow(0.001, dt);
+		console.log(t, dt);
+		const theta = remap(this.value, 0, 255, 0, -0.2);
+		const center = this.center;
+		const position = new THREE.Vector3().copy(this.position.original).sub(center).applyAxisAngle(this.axis, theta).add(center).add(this.click_vector);
+		position.multiplyScalar(remap(this.value, 0, 255, 0, 1));
+		const quaternion = new THREE.Quaternion().setFromAxisAngle(this.axis, theta)
+		this.object.position.lerp(position, t);
+		this.object.quaternion.slerp(quaternion, t);
 	}
 }
 
@@ -119,7 +190,7 @@ class State {
 			a: new ButtonState(controller.getObjectByName("a"), controller.getObjectByName("a-label") as THREE.Mesh),
 			lb: ButtonState.back_button(controller.getObjectByName("lb")),
 			rb: ButtonState.back_button(controller.getObjectByName("rb")),
-			rt: new TriggerState(controller.getObjectByName("rt")),
+			rt: new TriggerState(controller.getObjectByName("rt") as THREE.Mesh),
 		};
 		setInterval(this.toggle, 2000);
 		if (this._should_start) this.start();
@@ -204,6 +275,7 @@ const colors = {
 const colors_array = Object.values(colors);
 
 export const state = new State();
+const loader = new GLTFLoader();
 loader.load("assets/models/xbox-controller/scene.gltf", (gtlf) => {
 	// console.log(gtlf);
 	let controller = gtlf.scene.children[0];

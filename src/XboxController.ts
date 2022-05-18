@@ -1,8 +1,8 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
-import { get_binding_group_value } from "svelte/internal";
-
+import { getState } from "./conversion";
+import { defXboxConfig } from "./conversion";
 const invert_color = (color: THREE.Color) => new THREE.Color(255 - color.r, 255 - color.g, 255 - color.b);
 
 const get_scene = (object: THREE.Object3D): THREE.Scene => {
@@ -88,23 +88,26 @@ const ROTATION_UPDATER = (axis: THREE.Vector3, target_theta: number, click_vecto
 	};
 };
 const TRIGGER_UPDATER = ROTATION_UPDATER(new THREE.Vector3(1, 0, 0), -0.2, new THREE.Vector3(0, -5, 0));
-const AXIS_UPDATER = (axisX: THREE.Vector3, axisY: THREE.Vector3) => (object: THREE.Mesh) => {
+const AXES_UPDATER = (axisX: THREE.Vector3, axisY: THREE.Vector3) => (object: THREE.Mesh) => {
 	const position = object.position.clone();
 	return (x: number, y: number) => {
 		const thetaX = remap(x, -1, 1, -0.2, 0.2);
 		const thetaY = remap(y, -1, 1, -0.2, 0.2);
-		console.log(thetaX, thetaY);
-
 		const center = object.geometry.boundingBox.getCenter(new THREE.Vector3(0, 0, 0));
-		const target_position = position.clone().sub(center).applyAxisAngle(axisX, thetaX).applyAxisAngle(axisY, thetaY).add(center);
-		const target_quaternion = new THREE.Quaternion().setFromAxisAngle(axisY, thetaY).multiply(new THREE.Quaternion().setFromAxisAngle(axisY, thetaY));
+		// const target_position = position.clone().sub(center).applyAxisAngle(axisX, thetaX).applyAxisAngle(axisY, thetaY).add(center);
+		const positionX = position.clone().sub(center).applyAxisAngle(axisX, thetaX).add(center);
+		const positionXY = positionX.clone().sub(center).applyAxisAngle(axisY, thetaY).add(center);
+		// const target_quaternion = new THREE.Quaternion().setFromAxisAngle(axisY, thetaY).multiply(new THREE.Quaternion().setFromAxisAngle(axisY, thetaY));
+		const quaternionX = new THREE.Quaternion().setFromAxisAngle(axisY, thetaY);
+		const quaternionY = new THREE.Quaternion().setFromAxisAngle(axisY, thetaY);
+		const quaternionXY = new THREE.Quaternion(quaternionX.x + quaternionY.x, quaternionX.y + quaternionY.y, quaternionX.z + quaternionY.z, quaternionX.w + quaternionY.w);
 		return (t: number) => {
-			object.position.lerp(target_position, t);
-			object.quaternion.slerp(target_quaternion, t);
+			object.position.lerp(positionXY, t);
+			object.quaternion.slerp(quaternionXY, t);
 		};
 	};
 };
-const NORMAL_AXIS_UPDATER = AXIS_UPDATER(new THREE.Vector3(0, 1, 0), new THREE.Vector3(-1, 0, 0));
+const NORMAL_AXES_UPDATER = AXES_UPDATER(new THREE.Vector3(0, -1, 0), new THREE.Vector3(-1, 0, 0));
 
 class ButtonState {
 	object?: THREE.Object3D;
@@ -113,7 +116,6 @@ class ButtonState {
 	position_update: Update = (t: number) => {};
 	color?: Updater;
 	color_update: Update = (t: number) => {};
-	get_t = DeltaAlpha();
 	constructor() {}
 	_value: boolean = false;
 
@@ -128,12 +130,15 @@ class ButtonState {
 		return this._value;
 	}
 
+	set(value: boolean) {
+		this.value = value;
+	}
+
 	toggle() {
 		this.value = !this.value;
 	}
 
-	update(time: any) {
-		const t = this.get_t(time);
+	update(t: any) {
 		this.position_update(t);
 		this.color_update(t);
 	}
@@ -161,23 +166,24 @@ class ButtonState {
 class TriggerState {
 	position: Updater;
 	position_update: Update = (t: number) => {};
-	get_t = DeltaAlpha();
 	constructor(public object: THREE.Mesh) {
 		this.position = TRIGGER_UPDATER(object);
 	}
 	_value: number = 0;
 	set value(value: number) {
-		value = value > 255 ? 255 : value < 0 ? 0 : value;
 		this._value = value;
-		this.position_update = this.position(remap(value, 0, 255, 0, 1));
+		this.position_update = this.position(value);
 	}
 
 	get value() {
 		return this._value;
 	}
 
-	update(time: any) {
-		const t = this.get_t(time);
+	set(value: number) {
+		this.value = value;
+	}
+
+	update(t: any) {
 		this.position_update(t);
 	}
 }
@@ -185,9 +191,8 @@ class TriggerState {
 class AxesState {
 	position: (x: number, y: number) => Update;
 	position_update: Update = (t: number) => {};
-	get_t = DeltaAlpha();
 	constructor(public object: THREE.Mesh) {
-		this.position = NORMAL_AXIS_UPDATER(object);
+		this.position = NORMAL_AXES_UPDATER(object);
 	}
 	_x: number = 0;
 	set x(x: number) {
@@ -217,38 +222,35 @@ class AxesState {
 		this.position_update = this.position(this.x, this.y);
 	}
 
-	update(time: any) {
-		const t = this.get_t(time);
+	update(t: any) {
 		this.position_update(t);
 	}
 }
-
 
 let global = {
 	x: 0,
 	y: 0,
 };
-class State {
-	camera?: THREE.PerspectiveCamera;
-	scene: THREE.Scene;
-	// light: THREE.Light;
+export class XboxController {
 	renderer?: THREE.WebGLRenderer;
-	_controller?: THREE.Object3D;
+	scene: THREE.Scene;
+	camera?: THREE.PerspectiveCamera;
 	controls?: OrbitControls;
-	axes: {
-		ls: AxesState;
-		rs: AxesState;
-	};
-	buttons: {
-		a: ButtonState;
-		b: ButtonState;
-		x: ButtonState;
-		y: ButtonState;
-		lb: ButtonState;
-		rb: ButtonState;
-		rt: TriggerState;
-		lt: TriggerState;
-	};
+
+	_gamepad: any = undefined;
+	_controller?: THREE.Object3D;
+	LS: AxesState;
+	RS: AxesState;
+	A: ButtonState;
+	B: ButtonState;
+	X: ButtonState;
+	Y: ButtonState;
+	LEFT_SHOULDER: ButtonState;
+	RIGHT_SHOULDER: ButtonState;
+	RT: TriggerState;
+	LT: TriggerState;
+
+	get_t = DeltaAlpha();
 
 	constructor() {
 		this.scene = new THREE.Scene();
@@ -264,64 +266,77 @@ class State {
 		this.scene.add(light3);
 	}
 
+	set gamepad(_gamepad: any) {
+		this._gamepad = _gamepad;
+		const gamepad = _gamepad ? getState(_gamepad, defXboxConfig) : undefined;
+		if (!this.controller) return;
+		this.LS.set(gamepad.axes.LX, gamepad.axes.LY);
+		this.RS.set(gamepad.axes.RX, gamepad.axes.RY);
+		this.A.set(gamepad.buttons.A);
+		this.B.set(gamepad.buttons.B);
+		this.X.set(gamepad.buttons.X);
+		this.Y.set(gamepad.buttons.Y);
+		this.LEFT_SHOULDER.set(gamepad.buttons.LEFT_SHOULDER);
+		this.RIGHT_SHOULDER.set(gamepad.buttons.RIGHT_SHOULDER);
+		this.RT.set(gamepad.axes.RT);
+		this.LT.set(gamepad.axes.LT);
+	}
+
+	get gamepad() {
+		return this._gamepad;
+	}
+
 	set controller(controller: THREE.Object3D) {
 		this.scene.add(controller);
 		this._controller = controller;
-		this.axes = {
-			ls: new AxesState(controller.getObjectByName("ls") as THREE.Mesh),
-			rs: new AxesState(controller.getObjectByName("rs") as THREE.Mesh),
-		};
-		this.buttons = {
-			a: ButtonState.front_button(controller.getObjectByName("a"), controller.getObjectByName("a-label") as THREE.Mesh),
-			b: ButtonState.front_button(controller.getObjectByName("b"), controller.getObjectByName("b-label") as THREE.Mesh),
-			x: ButtonState.front_button(controller.getObjectByName("x"), controller.getObjectByName("x-label") as THREE.Mesh),
-			y: ButtonState.front_button(controller.getObjectByName("y"), controller.getObjectByName("y-label") as THREE.Mesh),
-			lb: ButtonState.back_button(controller.getObjectByName("lb"), undefined),
-			rb: ButtonState.back_button(controller.getObjectByName("rb"), undefined),
-			rt: new TriggerState(controller.getObjectByName("rt") as THREE.Mesh),
-			lt: new TriggerState(controller.getObjectByName("lt") as THREE.Mesh),
-		};
-		setInterval(this.toggle, 2000);
-		if (this._should_start) this.start();
+		this.LS = new AxesState(controller.getObjectByName("ls") as THREE.Mesh);
+		this.RS = new AxesState(controller.getObjectByName("rs") as THREE.Mesh);
+		this.A = ButtonState.front_button(controller.getObjectByName("a"), controller.getObjectByName("a-label") as THREE.Mesh);
+		this.B = ButtonState.front_button(controller.getObjectByName("b"), controller.getObjectByName("b-label") as THREE.Mesh);
+		this.X = ButtonState.front_button(controller.getObjectByName("x"), controller.getObjectByName("x-label") as THREE.Mesh);
+		this.Y = ButtonState.front_button(controller.getObjectByName("y"), controller.getObjectByName("y-label") as THREE.Mesh);
+		this.LEFT_SHOULDER = ButtonState.back_button(controller.getObjectByName("lb"), undefined);
+		this.RIGHT_SHOULDER = ButtonState.back_button(controller.getObjectByName("rb"), undefined);
+		this.RT = new TriggerState(controller.getObjectByName("rt") as THREE.Mesh);
+		this.LT = new TriggerState(controller.getObjectByName("lt") as THREE.Mesh);
 	}
 
 	get controller() {
 		return this._controller;
 	}
 
-	toggle = () => {
-		this.buttons.a.toggle();
-		this.buttons.lb.toggle();
-		this.buttons.rb.toggle();
-		this.buttons.b.toggle();
-		this.buttons.rt.value = this.buttons.rt.value == 0 ? 255 : 0;
-		global.x = (((global.x + 0.1) * 100) % 100) % 100;
-		global.y = (((global.y + 0.1) * 100) % 100) % 100;
-		this.axes.ls.set(global.x, global.y);
-		// this.axes.ls.set(this.axes.ls.x == -1 ? 1 : -1, 0);
-		// this.axes.rs.set(this.axes.rs.y == -1 ? 1 : -1, 0);
-	};
+	// toggle = () => {
+	// 	this.buttons.a.toggle();
+	// 	this.buttons.lb.toggle();
+	// 	this.buttons.rb.toggle();
+	// 	this.buttons.b.toggle();
+	// 	this.buttons.rt.value = this.buttons.rt.value == 0 ? 255 : 0;
+	// 	global.x = (((global.x + 0.1) * 100) % 100) % 100;
+	// 	global.y = (((global.y + 0.1) * 100) % 100) % 100;
+	// 	this.axes.ls.set(global.x, global.y);
+	// 	console.log(this.gamepad);
+
+	// 	// this.axes.ls.set(this.axes.ls.x == -1 ? 1 : -1, 0);
+	// 	// this.axes.rs.set(this.axes.rs.y == -1 ? 1 : -1, 0);
+	// };
 
 	animation = (time: any) => {
-		// this.controller.rotation.x = (-Math.PI * 0.5) * (time / 5000)
-		// this.controller.rotation.x = time / 2000;
-		// this.controller.rotation.y = time / 1000;
-		// if (Math.floor(time) / 5000 == 0) {
-		// 	console.log("pressed");
-
-		// 	this.buttons.a.position.target = new THREE.Vector3(0, 0, -3).add(this.buttons.a.position.original);
-		// } else if (Math.floor(time) % 7000 == 0) {
-		// 	console.log("original");
-		// 	this.buttons.a.position.target = this.buttons.a.position.original;
-		// }
-		Object.entries(this.axes).forEach(([key, val]) => {
-			val.update(time);
-		});
-		Object.entries(this.buttons).forEach(([key, val]) => {
-			val.update(time);
-		});
-		// Object.entries(this.target_positions).forEach(([key, val]) => {
-		// 	(this.buttons[key] as THREE.Object3D).position.lerp(val, t);
+		const t = this.get_t(time);
+		this.LS.update(t);
+		this.RS.update(t);
+		this.A.update(t);
+		this.B.update(t);
+		this.X.update(t);
+		this.Y.update(t);
+		this.LEFT_SHOULDER.update(t);
+		this.RIGHT_SHOULDER.update(t);
+		this.RT.update(t);
+		this.LT.update(t);
+		// Object.entries(this.axes).forEach(([key, val]) => {
+		// 	val.update(time);
+		// });
+		// Object.entries(this.buttons).forEach(([key, val]) => {
+		// 	val.update(time);
 		// });
 		this.render();
 	};
@@ -330,12 +345,16 @@ class State {
 		this.renderer.render(this.scene, this.camera);
 	}
 
-	_should_start = false;
 	start = () => {
-		this._should_start = true;
-		console.log(this.scene);
-		if (!this.controller) return;
-		this.renderer.setAnimationLoop(this.animation);
+		const loader = new GLTFLoader();
+		loader.load("assets/models/xbox-controller/scene.gltf", (gtlf) => {
+			// console.log(gtlf);
+			let controller = gtlf.scene.children[0];
+			controller.scale.set(0.02, 0.02, 0.02);
+			controller.rotateX(Math.PI * 0.49);
+			this.controller = controller;
+			this.renderer.setAnimationLoop(this.animation);
+		});
 	};
 
 	bind = (canvas: HTMLCanvasElement, data: { aspect?: number } = {}) => {
@@ -370,13 +389,3 @@ const colors = {
 	y: 0x00ffff,
 };
 const colors_array = Object.values(colors);
-
-export const state = new State();
-const loader = new GLTFLoader();
-loader.load("assets/models/xbox-controller/scene.gltf", (gtlf) => {
-	// console.log(gtlf);
-	let controller = gtlf.scene.children[0];
-	controller.scale.set(0.02, 0.02, 0.02);
-	controller.rotateX(Math.PI * 0.49);
-	state.controller = gtlf.scene.children[0];
-});

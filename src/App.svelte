@@ -1,13 +1,21 @@
 <script lang="ts" context="module">
-	import CanvasRenderer from "./CanvasRenderer.svelte";
+	import XboxController from "./XboxController.svelte";
 </script>
 
 <script lang="ts">
-	import { state } from "./three_state";
+	import poll from "./poll";
 </script>
 
 <main>
-	<CanvasRenderer />
+	<!-- <XboxController {gamepad} size={600} /> -->
+	{#each $poll as gamepad, index (index)}
+		{#if gamepad}
+			<XboxController {gamepad} />
+			<p>{gamepad.id}</p>
+		{:else}
+			<p>Not A Gamepad #{index}</p>
+		{/if}
+	{/each}
 </main>
 
 <style>
